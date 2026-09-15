@@ -1697,7 +1697,34 @@ html&gt;body{padding:0}&lt;/style&gt;
       progress.setAttribute('aria-valuenow', String(done));
       progress.setAttribute('aria-valuemax', String(checks.length));
     };
-    checks.forEach((item) =&gt; item.addEventListener('change', update));
+    const applySavedState = (saved) =&gt; {
+      if (!Array.isArray(saved)) {
+        return;
+      }
+      checks.forEach((item, index) =&gt; {
+        item.checked = saved[index] === true;
+      });
+      update();
+    };
+    window.addEventListener('message', (event) =&gt; {
+      const data = event.data;
+      if (
+        event.source === window.parent &amp;&amp;
+        typeof data === 'object' &amp;&amp;
+        data?.type === 'pc-checklist-state'
+      ) {
+        applySavedState(data.state);
+      }
+    });
+    const save = () =&gt; {
+      update();
+      window.parent.postMessage({
+        type: 'pc-checklist-save',
+        state: checks.map((item) =&gt; item.checked),
+      }, '*');
+    };
+    checks.forEach((item) =&gt; item.addEventListener('change', save));
+    window.parent.postMessage({ type: 'pc-checklist-load' }, '*');
     update();
   })();
 &lt;/script&gt;
@@ -2064,6 +2091,43 @@ html&gt;body{padding:0}&lt;/style&gt;
     return;
   }
   let viewportHeight = globalThis.innerHeight;
+  const checklistStorageKey = "papeles-cedis-checks-v1";
+
+  globalThis.addEventListener("message", (event) => {
+    const data = event.data;
+    if (
+      event.source !== frame.contentWindow ||
+      typeof data !== "object" ||
+      data == null
+    ) {
+      return;
+    }
+    if (data.type === "pc-checklist-load") {
+      let state = [];
+      try {
+        const saved = JSON.parse(globalThis.localStorage.getItem(checklistStorageKey) ?? "[]");
+        if (Array.isArray(saved) && saved.length <= 100) {
+          state = saved.map((value) => value === true);
+        }
+      } catch {
+        state = [];
+      }
+      frame.contentWindow?.postMessage({ type: "pc-checklist-state", state }, "*");
+      return;
+    }
+    if (
+      data.type === "pc-checklist-save" &&
+      Array.isArray(data.state) &&
+      data.state.length <= 100 &&
+      data.state.every((value) => typeof value === "boolean")
+    ) {
+      try {
+        globalThis.localStorage.setItem(checklistStorageKey, JSON.stringify(data.state));
+      } catch {
+        // El navegador puede bloquear el almacenamiento en modo privado.
+      }
+    }
+  });
 
   const channel = new MessageChannel();
   channel.port1.addEventListener("message", (event) => {
